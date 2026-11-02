@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OVH Availability Tracker</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>OVH Availability Tracker</h1>
+    <p class="subtitle">Filter dedicated server plans, watch the ones you want, get a webhook the moment they're in stock.</p>
+  </header>
+
+  <main>
+    <section class="panel" id="catalog-panel">
+      <h2>Catalog</h2>
+      <form id="filter-form" class="filters">
+        <input type="search" id="f-q" placeholder="Search plan code, server, fqn…" autocomplete="off" />
+
+        <select id="f-region">
+          <option value="">All regions</option>
+          <option value="us">US</option>
+          <option value="eu">EU</option>
+        </select>
+
+        <select id="f-availability">
+          <option value="all">Any availability</option>
+          <option value="available" selected>Available only</option>
+          <option value="not_available">Not available only</option>
+        </select>
+
+        <input type="search" id="f-storage" placeholder="Storage contains… (e.g. nvme)" autocomplete="off" />
+
+        <div class="dc-filter">
+          <button type="button" id="mem-toggle" class="dc-toggle">Memory ▾</button>
+          <div id="mem-list" class="dc-list hidden"></div>
+        </div>
+
+        <div class="dc-filter">
+          <button type="button" id="dc-toggle" class="dc-toggle">Datacenters ▾</button>
+          <div id="dc-list" class="dc-list hidden"></div>
+        </div>
+
+        <button type="button" id="f-reset" class="secondary">Reset</button>
+      </form>
+
+      <p id="catalog-meta" class="meta"></p>
+      <div class="table-wrap">
+        <table id="catalog-table">
+          <thead>
+            <tr>
+              <th>Region</th>
+              <th>Plan code</th>
+              <th>Server</th>
+              <th>Datacenter</th>
+              <th>Memory</th>
+              <th>Storage</th>
+              <th id="price-header" class="sortable">Price / mo</th>
+              <th>Availability</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="catalog-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" id="watchlist-panel">
+      <h2>Watchlist</h2>
+      <div class="table-wrap">
+        <table id="watchlist-table">
+          <thead>
+            <tr>
+              <th>Region</th>
+              <th>Plan code</th>
+              <th>Datacenter</th>
+              <th>Status</th>
+              <th>Last checked</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="watchlist-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" id="webhook-panel">
+      <h2>Webhook destinations</h2>
+      <form id="webhook-form" class="webhook-form">
+        <input type="url" id="wh-url" placeholder="https://example.com/hook" required />
+        <input type="text" id="wh-secret" placeholder="Signing secret (optional)" />
+        <button type="submit">Add</button>
+      </form>
+      <ul id="webhook-list"></ul>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

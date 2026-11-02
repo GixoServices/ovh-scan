@@ -1,0 +1,192 @@
+:root {
+  color-scheme: light dark;
+  --border: #d8dce2;
+  --muted: #6b7280;
+  --accent: #2563eb;
+  --bg-panel: #ffffff;
+  --bg-page: #f5f6f8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --border: #333a45;
+    --muted: #9aa4b2;
+    --accent: #5b8def;
+    --bg-panel: #181c22;
+    --bg-page: #101317;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg-page);
+  color: inherit;
+}
+
+header {
+  padding: 1.5rem 1.5rem 0.5rem;
+}
+
+h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
+.subtitle { margin: 0; color: var(--muted); }
+
+main {
+  padding: 1rem 1.5rem 2rem;
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: 1fr;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.panel h2 { margin-top: 0; font-size: 1.1rem; }
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.filters input, .filters select {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
+
+#f-q { flex: 1 1 220px; }
+
+.dc-filter { position: relative; }
+.dc-toggle {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.dc-list {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem;
+  max-height: 220px;
+  overflow-y: auto;
+  min-width: 160px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+.dc-list.hidden { display: none; }
+.dc-list label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0;
+  font-size: 0.9rem;
+}
+
+button.secondary {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.meta { color: var(--muted); font-size: 0.85rem; margin: 0 0 0.5rem; }
+
+.table-wrap { overflow-x: auto; }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--accent); }
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.badge.available { background: #16a34a22; color: #16a34a; }
+.badge.not_available { background: #6b728022; color: var(--muted); }
+
+button.watch, button.unwatch {
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+button.unwatch { background: transparent; color: var(--accent); }
+
+.webhook-form { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+.webhook-form input {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
+#wh-url { flex: 1 1 260px; }
+.webhook-form button {
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+}
+
+#webhook-list { list-style: none; margin: 0; padding: 0; }
+#webhook-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+#webhook-list li > span:first-child { flex: 1; }
+#webhook-list button {
+  border: none;
+  background: transparent;
+  color: #dc2626;
+  cursor: pointer;
+}
+#webhook-list button.test {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.2rem 0.6rem;
+}
+#webhook-list button.test:disabled { opacity: 0.5; cursor: default; }
+
+.webhook-test-status {
+  font-size: 0.82rem;
+  color: var(--muted);
+  min-width: 2rem;
+  text-align: right;
+}
+.webhook-test-status.ok { color: #16a34a; }
+.webhook-test-status.fail { color: #dc2626; }

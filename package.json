@@ -1,0 +1,25 @@
+{
+  "name": "ovh-availability-tracker",
+  "version": "1.0.0",
+  "description": "Watch OVH dedicated server availability and get a webhook when a watched plan/datacenter becomes available",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@fastify/static": "^7.0.4",
+    "fastify": "^4.28.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}

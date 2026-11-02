@@ -1,0 +1,142 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import Fastify, { type FastifyInstance } from "fastify";
+import fastifyStatic from "@fastify/static";
+import { CatalogService, computeFacets, filterCatalog, type Classification, type NormalizedEntry, type Region } from "./catalog.js";
+import { WatchlistStore } from "./watchlist.js";
+import { WebhookStore, sendTestWebhook } from "./webhooks.js";
+import { PricingService, computeMonthlyPrice, type PriceResult } from "./pricing.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+interface BuildOptions {
+  catalog: CatalogService;
+  watchlist: WatchlistStore;
+  webhooks: WebhookStore;
+  pricing: PricingService;
+  publicDir?: string;
+}
+
+type PricedEntry = NormalizedEntry & { price: PriceResult | null };
+
+async function attachPrices(entries: NormalizedEntry[], pricing: PricingService): Promise<PricedEntry[]> {
+  const regions = [...new Set(entries.map((e) => e.region))];
+  const catalogsByRegion = new Map(
+    await Promise.all(
+      regions.map(async (region) => {
+        try {
+          return [region, await pricing.getCatalog(region)] as const;
+        } catch {
+          return [region, null] as const;
+        }
+      }),
+    ),
+  );
+  return entries.map((entry) => {
+    const catalog = catalogsByRegion.get(entry.region);
+    const price = catalog ? computeMonthlyPrice(catalog, entry) : null;
+    return { ...entry, price };
+  });
+}
+
+function parseAvailability(value: unknown): Classification | "all" | undefined {
+  if (value === "available" || value === "not_available" || value === "all") return value;
+  return undefined;
+}
+
+export function buildServer(opts: BuildOptions): FastifyInstance {
+  const app = Fastify({ logger: true });
+
+  app.register(fastifyStatic, {
+    root: opts.publicDir ?? path.join(__dirname, "..", "public"),
+  });
+
+  app.get("/api/catalog", async (req, reply) => {
+    const query = req.query as Record<string, string | undefined>;
+    const { entries, degradedRegions } = await opts.catalog.getCatalog();
+    const filtered = filterCatalog(entries, {
+      q: query.q,
+      region: query.region as Region | undefined,
+      datacenters: query.datacenter ? query.datacenter.split(",") : undefined,
+      memorySizes: query.memory
+        ? query.memory
+            .split(",")
+            .map((v) => Number.parseInt(v, 10))
+            .filter((n) => Number.isFinite(n))
+        : undefined,
+      storage: query.storage,
+      availability: parseAvailability(query.availability),
+    });
+    const priced = await attachPrices(filtered, opts.pricing);
+    return reply.send({ entries: priced, degradedRegions });
+  });
+
+  app.get("/api/catalog/facets", async (_req, reply) => {
+    const { entries, degradedRegions } = await opts.catalog.getCatalog();
+    return reply.send({ facets: computeFacets(entries), degradedRegions });
+  });
+
+  app.get("/api/watchlist", async (_req, reply) => {
+    return reply.send({ items: opts.watchlist.list() });
+  });
+
+  app.post("/api/watchlist", async (req, reply) => {
+    const body = req.body as {
+      region?: Region;
+      planCode?: string;
+      datacenter?: string;
+      fqn?: string;
+      server?: string;
+    };
+    if (!body.region || !body.planCode || !body.datacenter || !body.fqn || !body.server) {
+      return reply.code(400).send({ error: "region, planCode, datacenter, fqn, and server are required" });
+    }
+    const entry = opts.watchlist.add({
+      region: body.region,
+      planCode: body.planCode,
+      datacenter: body.datacenter,
+      fqn: body.fqn,
+      server: body.server,
+    });
+    return reply.code(201).send({ item: entry });
+  });
+
+  app.delete("/api/watchlist/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const removed = opts.watchlist.remove(Number(id));
+    if (!removed) return reply.code(404).send({ error: "not found" });
+    return reply.code(204).send();
+  });
+
+  app.get("/api/webhooks", async (_req, reply) => {
+    return reply.send({ items: opts.webhooks.list() });
+  });
+
+  app.post("/api/webhooks", async (req, reply) => {
+    const body = req.body as { url?: string; secret?: string };
+    if (!body.url) return reply.code(400).send({ error: "url is required" });
+    try {
+      const destination = opts.webhooks.add(body.url, body.secret?.trim() ? body.secret : null);
+      return reply.code(201).send({ item: destination });
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.delete("/api/webhooks/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const removed = opts.webhooks.remove(Number(id));
+    if (!removed) return reply.code(404).send({ error: "not found" });
+    return reply.code(204).send();
+  });
+
+  app.post("/api/webhooks/:id/test", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const webhook = opts.webhooks.getById(Number(id));
+    if (!webhook) return reply.code(404).send({ error: "not found" });
+    const result = await sendTestWebhook(webhook);
+    return reply.send(result);
+  });
+
+  return app;
+}

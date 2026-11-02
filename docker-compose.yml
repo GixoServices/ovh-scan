@@ -1,0 +1,19 @@
+services:
+  ovh-availability-tracker:
+    build: .
+    image: ovh-availability-tracker:latest
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-3000}:3000"
+    environment:
+      PORT: "3000"
+      DATA_DIR: "/app/data"
+      POLL_INTERVAL_SECONDS: "${POLL_INTERVAL_SECONDS:-300}"
+      CATALOG_CACHE_SECONDS: "${CATALOG_CACHE_SECONDS:-30}"
+      MAX_WEBHOOK_ATTEMPTS: "${MAX_WEBHOOK_ATTEMPTS:-5}"
+      PRICE_CACHE_SECONDS: "${PRICE_CACHE_SECONDS:-21600}"
+    volumes:
+      - ovh-data:/app/data
+
+volumes:
+  ovh-data:
