@@ -38,6 +38,16 @@
         </div>
 
         <div class="dc-filter">
+          <button type="button" id="cores-toggle" class="dc-toggle">Cores ▾</button>
+          <div id="cores-list" class="dc-list hidden"></div>
+        </div>
+
+        <div class="dc-filter">
+          <button type="button" id="threads-toggle" class="dc-toggle">Threads ▾</button>
+          <div id="threads-list" class="dc-list hidden"></div>
+        </div>
+
+        <div class="dc-filter">
           <button type="button" id="dc-toggle" class="dc-toggle">Datacenters ▾</button>
           <div id="dc-list" class="dc-list hidden"></div>
         </div>
@@ -54,6 +64,9 @@
               <th>Plan code</th>
               <th>Server</th>
               <th>Datacenter</th>
+              <th>CPU</th>
+              <th>Cores</th>
+              <th>Threads</th>
               <th>Memory</th>
               <th>Storage</th>
               <th id="price-header" class="sortable">Price / mo</th>
@@ -64,6 +77,7 @@
           <tbody id="catalog-rows"></tbody>
         </table>
       </div>
+      <div id="pagination-controls" style="margin-top: 1rem; text-align: center;"></div>
     </section>
 
     <section class="panel" id="watchlist-panel">

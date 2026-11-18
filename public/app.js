@@ -1,8 +1,12 @@
 const state = {
-  facets: { regions: [], datacenters: [], memorySizes: [] },
+  facets: { regions: [], datacenters: [], memorySizes: [], cores: [], threads: [] },
   selectedDatacenters: new Set(),
   selectedMemorySizes: new Set(),
+  selectedCores: new Set(),
+  selectedThreads: new Set(),
   watchlist: [],
+  page: 1,
+  pageSize: 50,
   sort: { key: null, dir: "asc" },
 };
 
@@ -13,12 +17,17 @@ const els = {
   storage: document.getElementById("f-storage"),
   memToggle: document.getElementById("mem-toggle"),
   memList: document.getElementById("mem-list"),
+  coresToggle: document.getElementById("cores-toggle"),
+  coresList: document.getElementById("cores-list"),
+  threadsToggle: document.getElementById("threads-toggle"),
+  threadsList: document.getElementById("threads-list"),
   dcToggle: document.getElementById("dc-toggle"),
   dcList: document.getElementById("dc-list"),
   reset: document.getElementById("f-reset"),
   priceHeader: document.getElementById("price-header"),
   meta: document.getElementById("catalog-meta"),
   rows: document.getElementById("catalog-rows"),
+  pagination: document.getElementById("pagination-controls"),
   watchRows: document.getElementById("watchlist-rows"),
   webhookForm: document.getElementById("webhook-form"),
   webhookUrl: document.getElementById("wh-url"),
@@ -61,6 +70,18 @@ async function loadFacets() {
 
   buildCheckboxList(els.dcList, state.facets.datacenters, state.selectedDatacenters, updateDcToggleLabel, loadCatalog);
   buildCheckboxList(els.memList, state.facets.memorySizes, state.selectedMemorySizes, updateMemToggleLabel, loadCatalog);
+  buildCheckboxList(els.coresList, state.facets.cores, state.selectedCores, updateCoresToggleLabel, loadCatalog);
+  buildCheckboxList(els.threadsList, state.facets.threads, state.selectedThreads, updateThreadsToggleLabel, loadCatalog);
+}
+
+function updateCoresToggleLabel() {
+  const n = state.selectedCores.size;
+  els.coresToggle.textContent = n > 0 ? `Cores (${n}) ▾` : "Cores ▾";
+}
+
+function updateThreadsToggleLabel() {
+  const n = state.selectedThreads.size;
+  els.threadsToggle.textContent = n > 0 ? `Threads (${n}) ▾` : "Threads ▾";
 }
 
 function updateDcToggleLabel() {
@@ -73,7 +94,7 @@ function updateMemToggleLabel() {
   els.memToggle.textContent = n > 0 ? `Memory (${n}) ▾` : "Memory ▾";
 }
 
-function buildQuery() {
+function buildFilterQuery() {
   const params = new URLSearchParams();
   if (els.q.value.trim()) params.set("q", els.q.value.trim());
   if (els.region.value) params.set("region", els.region.value);
@@ -81,10 +102,19 @@ function buildQuery() {
   if (els.storage.value.trim()) params.set("storage", els.storage.value.trim());
   if (state.selectedDatacenters.size) params.set("datacenter", [...state.selectedDatacenters].join(","));
   if (state.selectedMemorySizes.size) params.set("memory", [...state.selectedMemorySizes].join(","));
+  if (state.selectedCores.size) params.set("cores", [...state.selectedCores].join(","));
+  if (state.selectedThreads.size) params.set("threads", [...state.selectedThreads].join(","));
   if (state.sort.key) {
     params.set("sort", state.sort.key);
     params.set("dir", state.sort.dir);
   }
+  return params.toString();
+}
+
+function buildQuery() {
+  const params = new URLSearchParams(buildFilterQuery());
+  if (state.page > 1) params.set("page", String(state.page));
+  params.set("pageSize", String(state.pageSize));
   return params.toString();
 }
 
@@ -106,6 +136,18 @@ function restoreFiltersFromUrl() {
     }
   }
 
+  for (const [key, set] of [["cores", state.selectedCores], ["threads", state.selectedThreads]]) {
+    const raw = params.get(key);
+    if (!raw) continue;
+    for (const v of raw.split(",")) {
+      const n = Number.parseInt(v, 10);
+      if (Number.isFinite(n)) set.add(n);
+    }
+  }
+
+  const page = Number.parseInt(params.get("page") ?? "1", 10);
+  state.page = Number.isFinite(page) && page > 0 ? page : 1;
+
   const sortKey = params.get("sort");
   if (sortKey === "price") {
     state.sort.key = "price";
@@ -119,17 +161,6 @@ function updatePriceHeaderIndicator() {
   } else {
     els.priceHeader.textContent = "Price / mo";
   }
-}
-
-function sortEntries(entries) {
-  if (state.sort.key !== "price") return entries;
-  const dir = state.sort.dir === "asc" ? 1 : -1;
-  return [...entries].sort((a, b) => {
-    if (a.price === null && b.price === null) return 0;
-    if (a.price === null) return 1;
-    if (b.price === null) return -1;
-    return (a.price.amount - b.price.amount) * dir;
-  });
 }
 
 function updateUrlFromFilters() {
@@ -146,7 +177,12 @@ function isWatched(entry) {
 
 let catalogRequestSeq = 0;
 
+let lastFilterQuery = null;
+
 async function loadCatalog() {
+  const filterQuery = buildFilterQuery();
+  if (lastFilterQuery !== null && filterQuery !== lastFilterQuery) state.page = 1;
+  lastFilterQuery = filterQuery;
   updateUrlFromFilters();
   updatePriceHeaderIndicator();
   const requestSeq = ++catalogRequestSeq;
@@ -155,13 +191,22 @@ async function loadCatalog() {
   if (requestSeq !== catalogRequestSeq) return; // a newer request has since been issued; discard this stale response
   els.rows.innerHTML = "";
 
+  const totalPages = Math.max(1, Math.ceil(data.total / state.pageSize));
+  if (state.page > totalPages) {
+    state.page = totalPages;
+    return loadCatalog();
+  }
+  const from = data.total === 0 ? 0 : (state.page - 1) * state.pageSize + 1;
+  const to = (state.page - 1) * state.pageSize + data.entries.length;
+  const countText = `${data.total} result(s), showing ${from}–${to}`;
+
   if (data.degradedRegions?.length) {
-    els.meta.textContent = `${data.entries.length} result(s) — warning: ${data.degradedRegions.join(", ")} region data may be stale (upstream fetch failed)`;
+    els.meta.textContent = `${countText} — warning: ${data.degradedRegions.join(", ")} region data may be stale (upstream fetch failed)`;
   } else {
-    els.meta.textContent = `${data.entries.length} result(s)`;
+    els.meta.textContent = countText;
   }
 
-  for (const entry of sortEntries(data.entries)) {
+  for (const entry of data.entries) {
     const tr = document.createElement("tr");
     const watched = isWatched(entry);
     tr.innerHTML = `
@@ -169,6 +214,9 @@ async function loadCatalog() {
       <td>${entry.planCode}</td>
       <td>${entry.server}</td>
       <td>${entry.datacenter}</td>
+      <td>${entry.cpu?.model ?? "–"}</td>
+      <td>${entry.cpu?.cores ?? "–"}</td>
+      <td>${entry.cpu?.threads ?? "–"}</td>
       <td>${entry.memory ?? "–"}</td>
       <td>${entry.storage ?? "–"}</td>
       <td>${entry.price ? entry.price.formatted : "–"}</td>
@@ -184,6 +232,31 @@ async function loadCatalog() {
     cell.appendChild(btn);
     els.rows.appendChild(tr);
   }
+
+  renderPagination(totalPages);
+}
+
+function renderPagination(totalPages) {
+  const container = els.pagination;
+  container.innerHTML = "";
+  if (totalPages <= 1) return;
+  const mk = (label, page, disabled) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "secondary";
+    b.textContent = label;
+    b.disabled = disabled;
+    b.addEventListener("click", () => {
+      state.page = page;
+      loadCatalog();
+      els.rows.closest(".table-wrap")?.scrollIntoView({ block: "start" });
+    });
+    return b;
+  };
+  const info = document.createElement("span");
+  info.textContent = ` Page ${state.page} of ${totalPages} `;
+  info.style.margin = "0 0.75rem";
+  container.append(mk("‹ Prev", state.page - 1, state.page <= 1), info, mk("Next ›", state.page + 1, state.page >= totalPages));
 }
 
 async function addToWatchlist(entry) {
@@ -300,6 +373,8 @@ els.webhookForm.addEventListener("submit", async (e) => {
 for (const [toggle, list] of [
   [els.dcToggle, els.dcList],
   [els.memToggle, els.memList],
+  [els.coresToggle, els.coresList],
+  [els.threadsToggle, els.threadsList],
 ]) {
   toggle.addEventListener("click", () => list.classList.toggle("hidden"));
 }
@@ -307,6 +382,8 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest(".dc-filter")) {
     els.dcList.classList.add("hidden");
     els.memList.classList.add("hidden");
+    els.coresList.classList.add("hidden");
+    els.threadsList.classList.add("hidden");
   }
 });
 
@@ -317,10 +394,15 @@ els.reset.addEventListener("click", () => {
   els.storage.value = "";
   state.selectedDatacenters.clear();
   state.selectedMemorySizes.clear();
+  state.selectedCores.clear();
+  state.selectedThreads.clear();
   state.sort.key = null;
   state.sort.dir = "asc";
   updateDcToggleLabel();
   updateMemToggleLabel();
+  updateCoresToggleLabel();
+  updateThreadsToggleLabel();
+  for (const cb of [...els.coresList.querySelectorAll("input"), ...els.threadsList.querySelectorAll("input")]) cb.checked = false;
   for (const cb of els.dcList.querySelectorAll("input")) cb.checked = false;
   for (const cb of els.memList.querySelectorAll("input")) cb.checked = false;
   loadCatalog();
@@ -347,6 +429,8 @@ async function init() {
   await loadFacets();
   updateDcToggleLabel();
   updateMemToggleLabel();
+  updateCoresToggleLabel();
+  updateThreadsToggleLabel();
   await loadWatchlist();
   await loadCatalog();
   await loadWebhooks();
