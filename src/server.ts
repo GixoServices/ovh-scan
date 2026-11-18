@@ -5,7 +5,7 @@ import fastifyStatic from "@fastify/static";
 import { CatalogService, computeFacets, filterCatalog, type Classification, type NormalizedEntry, type Region } from "./catalog.js";
 import { WatchlistStore } from "./watchlist.js";
 import { WebhookStore, sendTestWebhook } from "./webhooks.js";
-import { PricingService, computeMonthlyPrice, cpuFor, type PriceResult } from "./pricing.js";
+import { PricingService, computeMonthlyPrice, cpuFor, type PriceResult, type RegionPriceCatalog } from "./pricing.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -19,9 +19,13 @@ interface BuildOptions {
 
 type PricedEntry = NormalizedEntry & { price: PriceResult | null };
 
-async function attachPrices(entries: NormalizedEntry[], pricing: PricingService): Promise<PricedEntry[]> {
+type PriceCatalogs = Map<Region, RegionPriceCatalog | null>;
+
+// Load each region's pricing catalog once per request so CPU and price
+// enrichment share a single lookup (and a single timeout on failure).
+async function loadPriceCatalogs(entries: NormalizedEntry[], pricing: PricingService): Promise<PriceCatalogs> {
   const regions = [...new Set(entries.map((e) => e.region))];
-  const catalogsByRegion = new Map(
+  return new Map(
     await Promise.all(
       regions.map(async (region) => {
         try {
@@ -32,28 +36,19 @@ async function attachPrices(entries: NormalizedEntry[], pricing: PricingService)
       }),
     ),
   );
+}
+
+function attachPrices(entries: NormalizedEntry[], catalogs: PriceCatalogs): PricedEntry[] {
   return entries.map((entry) => {
-    const catalog = catalogsByRegion.get(entry.region);
+    const catalog = catalogs.get(entry.region);
     const price = catalog ? computeMonthlyPrice(catalog, entry) : null;
     return { ...entry, price };
   });
 }
 
-async function attachCpu(entries: NormalizedEntry[], pricing: PricingService): Promise<NormalizedEntry[]> {
-  const regions = [...new Set(entries.map((e) => e.region))];
-  const catalogsByRegion = new Map(
-    await Promise.all(
-      regions.map(async (region) => {
-        try {
-          return [region, await pricing.getCatalog(region)] as const;
-        } catch {
-          return [region, null] as const;
-        }
-      }),
-    ),
-  );
+function attachCpu(entries: NormalizedEntry[], catalogs: PriceCatalogs): NormalizedEntry[] {
   return entries.map((entry) => {
-    const catalog = catalogsByRegion.get(entry.region);
+    const catalog = catalogs.get(entry.region);
     return { ...entry, cpu: catalog ? cpuFor(catalog, entry.planCode) : null };
   });
 }
@@ -95,7 +90,8 @@ export function buildServer(opts: BuildOptions): FastifyInstance {
     // slow/unavailable pricing endpoint can't delay this request.
     const region = query.region as Region | undefined;
     const inRegion = region ? entries.filter((e) => e.region === region) : entries;
-    const withCpu = await attachCpu(inRegion, opts.pricing);
+    const catalogs = await loadPriceCatalogs(inRegion, opts.pricing);
+    const withCpu = attachCpu(inRegion, catalogs);
     const filtered = filterCatalog(withCpu, {
       q: query.q,
       region: query.region as Region | undefined,
@@ -111,7 +107,7 @@ export function buildServer(opts: BuildOptions): FastifyInstance {
       storage: query.storage,
       availability: parseAvailability(query.availability),
     });
-    const priced = await attachPrices(filtered, opts.pricing);
+    const priced = attachPrices(filtered, catalogs);
     if (query.sort === "price") {
       const dir = query.dir === "desc" ? -1 : 1;
       priced.sort((a, b) => {
@@ -128,7 +124,8 @@ export function buildServer(opts: BuildOptions): FastifyInstance {
 
   app.get("/api/catalog/facets", async (_req, reply) => {
     const { entries, degradedRegions } = await opts.catalog.getCatalog();
-    const withCpu = await attachCpu(entries, opts.pricing);
+    const catalogs = await loadPriceCatalogs(entries, opts.pricing);
+    const withCpu = attachCpu(entries, catalogs);
     return reply.send({ facets: computeFacets(withCpu), degradedRegions });
   });
 
