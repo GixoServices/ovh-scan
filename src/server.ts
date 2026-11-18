@@ -58,6 +58,14 @@ async function attachCpu(entries: NormalizedEntry[], pricing: PricingService): P
   });
 }
 
+const MAX_PAGE_SIZE = 200;
+
+function clampInt(value: string | undefined, fallback: number, min: number, max: number): number {
+  const n = Number.parseInt(value ?? "", 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
 function parseIntList(value: string | undefined): number[] | undefined {
   if (!value) return undefined;
   return value
@@ -80,8 +88,8 @@ export function buildServer(opts: BuildOptions): FastifyInstance {
 
   app.get("/api/catalog", async (req, reply) => {
     const query = req.query as Record<string, string | undefined>;
-    const page = Number.parseInt(query.page ?? "1", 10);
-    const pageSize = Number.parseInt(query.pageSize ?? "50", 10);
+    const page = clampInt(query.page, 1, 1, Number.MAX_SAFE_INTEGER);
+    const pageSize = clampInt(query.pageSize, 50, 1, MAX_PAGE_SIZE);
     const { entries, degradedRegions } = await opts.catalog.getCatalog();
     // Only look up CPU data for the requested region so an unrelated region's
     // slow/unavailable pricing endpoint can't delay this request.
