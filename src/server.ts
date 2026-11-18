@@ -83,7 +83,11 @@ export function buildServer(opts: BuildOptions): FastifyInstance {
     const page = Number.parseInt(query.page ?? "1", 10);
     const pageSize = Number.parseInt(query.pageSize ?? "50", 10);
     const { entries, degradedRegions } = await opts.catalog.getCatalog();
-    const withCpu = await attachCpu(entries, opts.pricing);
+    // Only look up CPU data for the requested region so an unrelated region's
+    // slow/unavailable pricing endpoint can't delay this request.
+    const region = query.region as Region | undefined;
+    const inRegion = region ? entries.filter((e) => e.region === region) : entries;
+    const withCpu = await attachCpu(inRegion, opts.pricing);
     const filtered = filterCatalog(withCpu, {
       q: query.q,
       region: query.region as Region | undefined,
