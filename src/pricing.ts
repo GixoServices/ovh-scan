@@ -17,6 +17,7 @@ export interface RawAddonFamily {
 
 export interface RawPlan {
   planCode: string;
+  product?: string;
   addonFamilies: RawAddonFamily[];
   pricings: RawPricingEntry[];
 }
@@ -28,12 +29,25 @@ export interface RawAddon {
 
 interface RawCatalog {
   locale?: { currencyCode?: string };
+  products?: RawProduct[];
   plans: RawPlan[];
   addons: RawAddon[];
 }
 
+export interface CpuInfo {
+  model: string | null;
+  cores: number;
+  threads: number;
+}
+
+export interface RawProduct {
+  name: string;
+  blobs?: { technical?: { server?: { cpu?: { model?: string; cores?: number; threads?: number; number?: number } } } };
+}
+
 export interface RegionPriceCatalog {
   currencyCode: string;
+  productsByName?: Map<string, RawProduct>;
   plansByCode: Map<string, RawPlan>;
   addonsByCode: Map<string, RawAddon>;
 }
@@ -85,6 +99,16 @@ function matchAddonCode(family: RawAddonFamily | undefined, fieldValue: string |
   const shortest = candidates.reduce((a, b) => (b.length < a.length ? b : a));
   const shortestCount = candidates.filter((c) => c.length === shortest.length).length;
   return shortestCount === 1 ? shortest : null;
+}
+
+export function cpuFor(catalog: RegionPriceCatalog, planCode: string): CpuInfo | null {
+  const plan = catalog.plansByCode.get(planCode);
+  if (!plan?.product) return null;
+  const cpu = catalog.productsByName?.get(plan.product)?.blobs?.technical?.server?.cpu;
+  if (!cpu || typeof cpu.cores !== "number" || typeof cpu.threads !== "number") return null;
+  // Multi-socket servers report per-CPU cores/threads plus a CPU count.
+  const sockets = typeof cpu.number === "number" && cpu.number > 1 ? cpu.number : 1;
+  return { model: cpu.model ?? null, cores: cpu.cores * sockets, threads: cpu.threads * sockets };
 }
 
 export function computeMonthlyPrice(
@@ -169,16 +193,18 @@ export class PricingService {
       const catalogs = await Promise.all(CATALOG_NAMES.map((name) => this.fetchCatalog(region, name)));
       const plansByCode = new Map<string, RawPlan>();
       const addonsByCode = new Map<string, RawAddon>();
+      const productsByName = new Map<string, RawProduct>();
       let currencyCode = REGION_CATALOG_CONFIG[region].subsidiary === "US" ? "USD" : "GBP";
 
       for (const catalog of catalogs) {
         if (catalog.locale?.currencyCode) currencyCode = catalog.locale.currencyCode;
         for (const plan of catalog.plans) plansByCode.set(plan.planCode, plan);
         for (const addon of catalog.addons) addonsByCode.set(addon.planCode, addon);
+        for (const product of catalog.products ?? []) productsByName.set(product.name, product);
       }
 
       this.cache.set(region, {
-        catalog: { currencyCode, plansByCode, addonsByCode },
+        catalog: { currencyCode, plansByCode, addonsByCode, productsByName },
         fetchedAt: Date.now(),
         degraded: false,
       });

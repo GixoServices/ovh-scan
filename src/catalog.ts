@@ -31,6 +31,7 @@ export interface NormalizedEntry {
   storage: string | null;
   rawAvailability: string;
   classification: Classification;
+  cpu?: { model: string | null; cores: number; threads: number } | null;
 }
 
 export interface CatalogFilters {
@@ -38,6 +39,8 @@ export interface CatalogFilters {
   region?: Region;
   datacenters?: string[];
   memorySizes?: number[];
+  cores?: number[];
+  threads?: number[];
   storage?: string;
   availability?: Classification | "all";
 }
@@ -46,6 +49,8 @@ export interface CatalogFacets {
   regions: Region[];
   datacenters: string[];
   memorySizes: number[];
+  cores: number[];
+  threads: number[];
 }
 
 const LEAD_TIME_PATTERN = /^\d+H(-high|-low)?$/i;
@@ -86,6 +91,8 @@ export function filterCatalog(entries: NormalizedEntry[], filters: CatalogFilter
   const q = filters.q?.trim().toLowerCase();
   const datacenterSet = filters.datacenters?.length ? new Set(filters.datacenters) : null;
   const memorySizeSet = filters.memorySizes?.length ? new Set(filters.memorySizes) : null;
+  const coresSet = filters.cores?.length ? new Set(filters.cores) : null;
+  const threadsSet = filters.threads?.length ? new Set(filters.threads) : null;
   const storageQuery = filters.storage?.trim().toLowerCase();
 
   return entries.filter((entry) => {
@@ -95,6 +102,8 @@ export function filterCatalog(entries: NormalizedEntry[], filters: CatalogFilter
       const size = parseMemorySizeGb(entry.memory);
       if (size === null || !memorySizeSet.has(size)) return false;
     }
+    if (coresSet && (!entry.cpu || !coresSet.has(entry.cpu.cores))) return false;
+    if (threadsSet && (!entry.cpu || !threadsSet.has(entry.cpu.threads))) return false;
     if (storageQuery && !entry.storage?.toLowerCase().includes(storageQuery)) return false;
     if (filters.availability && filters.availability !== "all" && entry.classification !== filters.availability) {
       return false;
@@ -111,18 +120,26 @@ export function computeFacets(entries: NormalizedEntry[]): CatalogFacets {
   const regions = new Set<Region>();
   const datacenters = new Set<string>();
   const memorySizes = new Set<number>();
+  const cores = new Set<number>();
+  const threads = new Set<number>();
 
   for (const entry of entries) {
     regions.add(entry.region);
     datacenters.add(entry.datacenter);
     const size = parseMemorySizeGb(entry.memory);
     if (size !== null) memorySizes.add(size);
+    if (entry.cpu) {
+      cores.add(entry.cpu.cores);
+      threads.add(entry.cpu.threads);
+    }
   }
 
   return {
     regions: [...regions].sort(),
     datacenters: [...datacenters].sort(),
     memorySizes: [...memorySizes].sort((a, b) => a - b),
+    cores: [...cores].sort((a, b) => a - b),
+    threads: [...threads].sort((a, b) => a - b),
   };
 }
 

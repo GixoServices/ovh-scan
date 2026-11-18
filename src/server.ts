@@ -5,7 +5,7 @@ import fastifyStatic from "@fastify/static";
 import { CatalogService, computeFacets, filterCatalog, type Classification, type NormalizedEntry, type Region } from "./catalog.js";
 import { WatchlistStore } from "./watchlist.js";
 import { WebhookStore, sendTestWebhook } from "./webhooks.js";
-import { PricingService, computeMonthlyPrice, type PriceResult } from "./pricing.js";
+import { PricingService, computeMonthlyPrice, cpuFor, type PriceResult } from "./pricing.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,6 +39,33 @@ async function attachPrices(entries: NormalizedEntry[], pricing: PricingService)
   });
 }
 
+async function attachCpu(entries: NormalizedEntry[], pricing: PricingService): Promise<NormalizedEntry[]> {
+  const regions = [...new Set(entries.map((e) => e.region))];
+  const catalogsByRegion = new Map(
+    await Promise.all(
+      regions.map(async (region) => {
+        try {
+          return [region, await pricing.getCatalog(region)] as const;
+        } catch {
+          return [region, null] as const;
+        }
+      }),
+    ),
+  );
+  return entries.map((entry) => {
+    const catalog = catalogsByRegion.get(entry.region);
+    return { ...entry, cpu: catalog ? cpuFor(catalog, entry.planCode) : null };
+  });
+}
+
+function parseIntList(value: string | undefined): number[] | undefined {
+  if (!value) return undefined;
+  return value
+    .split(",")
+    .map((v) => Number.parseInt(v, 10))
+    .filter((n) => Number.isFinite(n));
+}
+
 function parseAvailability(value: unknown): Classification | "all" | undefined {
   if (value === "available" || value === "not_available" || value === "all") return value;
   return undefined;
@@ -53,8 +80,11 @@ export function buildServer(opts: BuildOptions): FastifyInstance {
 
   app.get("/api/catalog", async (req, reply) => {
     const query = req.query as Record<string, string | undefined>;
+    const page = Number.parseInt(query.page ?? "1", 10);
+    const pageSize = Number.parseInt(query.pageSize ?? "50", 10);
     const { entries, degradedRegions } = await opts.catalog.getCatalog();
-    const filtered = filterCatalog(entries, {
+    const withCpu = await attachCpu(entries, opts.pricing);
+    const filtered = filterCatalog(withCpu, {
       q: query.q,
       region: query.region as Region | undefined,
       datacenters: query.datacenter ? query.datacenter.split(",") : undefined,
@@ -64,16 +94,30 @@ export function buildServer(opts: BuildOptions): FastifyInstance {
             .map((v) => Number.parseInt(v, 10))
             .filter((n) => Number.isFinite(n))
         : undefined,
+      cores: parseIntList(query.cores),
+      threads: parseIntList(query.threads),
       storage: query.storage,
       availability: parseAvailability(query.availability),
     });
     const priced = await attachPrices(filtered, opts.pricing);
-    return reply.send({ entries: priced, degradedRegions });
+    if (query.sort === "price") {
+      const dir = query.dir === "desc" ? -1 : 1;
+      priced.sort((a, b) => {
+        if (!a.price && !b.price) return 0;
+        if (!a.price) return 1;
+        if (!b.price) return -1;
+        return (a.price.amount - b.price.amount) * dir;
+      });
+    }
+    const start = (page - 1) * pageSize;
+    const paginated = priced.slice(start, start + pageSize);
+    return reply.send({ entries: paginated, degradedRegions, page, pageSize, total: priced.length });
   });
 
   app.get("/api/catalog/facets", async (_req, reply) => {
     const { entries, degradedRegions } = await opts.catalog.getCatalog();
-    return reply.send({ facets: computeFacets(entries), degradedRegions });
+    const withCpu = await attachCpu(entries, opts.pricing);
+    return reply.send({ facets: computeFacets(withCpu), degradedRegions });
   });
 
   app.get("/api/watchlist", async (_req, reply) => {
